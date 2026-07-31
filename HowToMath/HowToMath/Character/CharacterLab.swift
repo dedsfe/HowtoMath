@@ -313,6 +313,7 @@ struct Creature: View {
                                         endPoint: .bottom
                                     )
                                 )
+                                .opacity(tearAlpha)
                         }
                     }
                     // Clipped so the pupil disappears behind the lid as it comes
@@ -409,6 +410,14 @@ struct Creature: View {
         return 0.44 + slosh - 0.15 * (1 - recovered * recovered)
     }
 
+    /// How solid the water reads, in the eye and on the cheek.
+    ///
+    /// One value for both: the pool and the drop are the same water, and any
+    /// gap between them shows the moment one leaves the other. Short of opaque
+    /// so the pupil stays visible under the surface, which is most of what
+    /// makes the eye look wet rather than painted blue.
+    private var tearAlpha: Double { 0.72 }
+
     /// How long a tear takes to clear the face.
     private var fallSpan: Double { 0.95 }
 
@@ -438,7 +447,7 @@ struct Creature: View {
                 .scaleEffect(min(1, t * 5), anchor: .top)
                 // Gone before it reaches the feet — a tear that lands looks
                 // like a leak.
-                .opacity(t > 0.75 ? Double(1 - (t - 0.75) / 0.25) : 1)
+                .opacity(tearAlpha * (t > 0.75 ? Double(1 - (t - 0.75) / 0.25) : 1))
                 .offset(
                     // Hangs off the outer corner, where the lid is lowest.
                     x: side * size * eyeSpan * 0.30,
