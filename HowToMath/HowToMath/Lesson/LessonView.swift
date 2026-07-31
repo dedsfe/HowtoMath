@@ -20,6 +20,10 @@ struct LessonView: View {
     /// Carries a chip from the bank into its slot instead of teleporting it.
     @Namespace private var pieceFlight
 
+    /// One duration for both directions of the arrival screen, so in and out
+    /// can never drift apart.
+    private let arrivalFade = Animation.easeInOut(duration: 0.42)
+
     /// Shown once, on the way into the fixing round.
     @State private var showingArrival = false
     @State private var arrivalDone = false
@@ -90,9 +94,16 @@ struct LessonView: View {
             }
 
             if showingArrival {
-                ArrivalScreen { showingArrival = false }
-                    .transition(.opacity)
-                    .zIndex(3)
+                // Fades in over the question and lifts away when it leaves, so
+                // the cut to a blank white screen is a move rather than a jolt.
+                ArrivalScreen {
+                    withAnimation(arrivalFade) { showingArrival = false }
+                }
+                // Symmetric on purpose: the same curve and the same 0.42s in
+                // both directions. Different scales at each end were reading as
+                // different speeds even though the timing already matched.
+                .transition(.opacity.combined(with: .scale(scale: 1.03)))
+                .zIndex(3)
             }
 
             if model.phase == .finished {
@@ -107,7 +118,7 @@ struct LessonView: View {
         .onChange(of: model.isFixing) { _, fixing in
             guard fixing, !arrivalDone else { return }
             arrivalDone = true
-            showingArrival = true
+            withAnimation(arrivalFade) { showingArrival = true }
         }
         .onAppear {
             Haptics.prepare()
@@ -183,7 +194,7 @@ struct LessonView: View {
     /// Plays the arrival screen on demand. Debug builds only.
     private var arrivalToggle: some View {
         Button {
-            showingArrival = true
+            withAnimation(arrivalFade) { showingArrival = true }
         } label: {
             Text("BOT")
                 .font(Theme.label(10, .heavy))

@@ -291,7 +291,7 @@ struct Creature: View {
                                     .padding(size * 0.014)
                             }
                             .offset(
-                                x: size * dizzy(side: side).x,
+                                x: size * (dizzy(side: side).x + gaze),
                                 y: size * (animation == .sad ? 0.055 : 0.018) + size * dizzy(side: side).y
                             )
                     }
@@ -324,6 +324,31 @@ struct Creature: View {
         // eye fading out green and back instead of closing. `transaction` clears
         // whatever the ancestors published for this subtree.
         .transaction { $0.animation = nil }
+    }
+
+    /// An occasional look to one side and back while idle.
+    ///
+    /// Both pupils move together here — that is the difference between looking
+    /// at something and being dizzy, where they disagree. It slides over, holds
+    /// long enough to read as attention rather than a twitch, and returns.
+    private var gaze: CGFloat {
+        guard animation == .idle, clock > 0 else { return 0 }
+
+        let period = 7.4
+        let cycle = (clock / period).rounded(.down)
+        let phase = clock.truncatingRemainder(dividingBy: period)
+
+        // Alternating sides, so it is not always glancing the same way.
+        let side: CGFloat = cycle.truncatingRemainder(dividingBy: 2) == 0 ? 1 : -1
+        let reach: CGFloat = 0.032
+        let move = 0.22, hold = 1.25
+        let t = phase - 3.1
+
+        guard t > 0, t < move + hold + move else { return 0 }
+
+        if t < move { return side * reach * CGFloat(t / move) }
+        if t < move + hold { return side * reach }
+        return side * reach * CGFloat(1 - (t - move - hold) / move)
     }
 
     /// Pupils rolling in circles after the spin, unwinding to a stop.
