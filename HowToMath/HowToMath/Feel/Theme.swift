@@ -33,6 +33,12 @@ enum Theme {
     static let missDeep = Color(hex: 0xEA2B2B)  // banner text and CTA face
     static let missEdge = Color(hex: 0xC02222)  // CTA lip
 
+    /// Water in the eye. The second hue outside the brand palette, and like the
+    /// red it earns its place by being unmistakable: tears have to be blue or
+    /// they are not tears. Used nowhere but the creature's face.
+    static let tear = Color(hex: 0x38B6E8)
+    static let tearLight = Color(hex: 0x9BE0F8)
+
     /// Kept as a function so callers stay unchanged, but the accent no longer
     /// drifts with the streak — brand colour beats temperature.
     static func accent(streak: Int) -> Color { green }

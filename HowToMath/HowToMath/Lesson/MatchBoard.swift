@@ -30,7 +30,7 @@ struct MatchBoard: View {
     }
 
     private func column(_ cards: [MatchCard]) -> some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 20) {
             ForEach(cards) { card in
                 card_(card)
             }

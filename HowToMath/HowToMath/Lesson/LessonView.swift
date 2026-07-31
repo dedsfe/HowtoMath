@@ -28,6 +28,13 @@ struct LessonView: View {
     @State private var showingArrival = false
     @State private var arrivalDone = false
 
+    /// Guards the X. Nothing ends the run without passing through it.
+    @State private var showingQuit = false
+
+    /// Slower and softer than `Theme.snap` — a sheet this tall reads as heavy,
+    /// and an overshoot on a full-width card looks like a wobble.
+    private let quitMotion = Animation.spring(response: 0.38, dampingFraction: 0.86)
+
     /// The lesson is handed a stage; everything it asks comes from there.
     let onFinish: (Bool) -> Void
 
@@ -111,6 +118,26 @@ struct LessonView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.94)))
                     .zIndex(2)
             }
+
+            if showingQuit {
+                // Scrim and card are siblings so each keeps its own entrance:
+                // the ground fades, the card travels. Folded into one view the
+                // whole screen would slide up from the bottom.
+                Theme.ink.opacity(0.45)
+                    .ignoresSafeArea()
+                    .contentShape(.rect)
+                    .onTapGesture { closeQuit() }
+                    .transition(.opacity)
+                    .zIndex(4)
+
+                QuitSheet(onStay: closeQuit, onQuit: { onFinish(false) })
+                    // Before the frame on purpose: the slide is measured
+                    // against the card, not against the full-screen container.
+                    .transition(.move(edge: .bottom))
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .ignoresSafeArea(edges: .bottom)
+                    .zIndex(5)
+            }
         }
         .animation(Theme.settle, value: model.phase)
         // Fires the moment the run crosses from new questions into repeats, and
@@ -146,12 +173,18 @@ struct LessonView: View {
 
     private var heat: Double { min(Double(model.streak) / 8, 1) }
 
+    /// One way back into the lesson, so the scrim, the drag and the green
+    /// button can never animate differently from each other.
+    private func closeQuit() {
+        withAnimation(quitMotion) { showingQuit = false }
+    }
+
     // MARK: - Top bar
 
     private var topBar: some View {
         HStack(spacing: 14) {
             Button {
-                onFinish(false)
+                withAnimation(quitMotion) { showingQuit = true }
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 17, weight: .bold))
@@ -282,6 +315,9 @@ struct LessonView: View {
             isMatched: model.isMatched,
             onPick: { card in withAnimation(Theme.glide) { model.pick(card) } }
         )
+        // The board is the tallest question type, so it gets a little air under
+        // the creature instead of growing straight out of its feet.
+        .padding(.top, 18)
         .id(model.problem.id)
         .transition(.blurReplace.combined(with: .scale(0.92)))
         .burst(model.burstToken, color: model.accent)
