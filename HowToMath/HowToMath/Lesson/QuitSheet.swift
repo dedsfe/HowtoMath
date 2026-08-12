@@ -13,24 +13,17 @@ import SwiftUI
 /// the ask — a rule about lost progress is an accusation, a sad face is a
 /// request.
 ///
-/// Everything cheap dismisses back into the lesson: the scrim, a downward drag,
-/// the primary button. Only the word SAIR ends the run.
+/// There is no cheap way out of it. No grabber, no drag, and a scrim that does
+/// nothing when tapped — the only two exits are the two buttons. Dismissing by
+/// gesture is right for a sheet someone opened by accident; this one is a
+/// question with two named answers, and a stray tap is neither.
 struct QuitSheet: View {
 
     var onStay: () -> Void
     var onQuit: () -> Void
 
-    /// Follows the finger, then springs back. Never travels up — dragging the
-    /// card into the notch reads as a bug.
-    @State private var drag: CGFloat = 0
-
-    /// Past this the intent is clear enough to close without a second thought.
-    private let dismissThreshold: CGFloat = 90
-
     var body: some View {
         VStack(spacing: 26) {
-            grabber
-
             Creature(size: 92, animation: .gloomy)
 
             Text("Espera, você tá quase acabando a lição!")
@@ -58,7 +51,14 @@ struct QuitSheet: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(.top, 12)
+        // 38, not 12, to match the bottom.
+        //
+        // The gap under SAIR is not the 12pt of padding: the word is centred in
+        // a 52pt tap target, so 26pt of that target sits under it before the
+        // padding even starts. Matching the declared numbers would have left
+        // the card visibly top-heavy — what has to match is the space you can
+        // actually see.
+        .padding(.top, 38)
         .padding(.horizontal, 22)
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity)
@@ -81,28 +81,10 @@ struct QuitSheet: View {
                     .frame(height: 1.5)
             }
         }
-        .offset(y: drag)
-        .gesture(
-            DragGesture()
-                .onChanged { value in
-                    drag = max(0, value.translation.height)
-                }
-                .onEnded { value in
-                    if value.translation.height > dismissThreshold {
-                        onStay()
-                        // Reset behind the exit so a reopened card starts seated.
-                        drag = 0
-                    } else {
-                        withAnimation(Theme.snap) { drag = 0 }
-                    }
-                }
-        )
-    }
-
-    private var grabber: some View {
-        Capsule()
-            .fill(Theme.line)
-            .frame(width: 44, height: 5)
+        // Swallows any touch that lands on the card without doing anything, so
+        // a drag started here never reaches whatever is behind it.
+        .contentShape(.rect)
+        .gesture(DragGesture())
     }
 }
 

@@ -148,6 +148,36 @@ final class LessonViewModel {
 
     /// How many misses are still waiting at the end of the run.
     var pendingFixes: Int { queue.count }
+
+    /// A run finished without a single miss.
+    ///
+    /// Read off the length of the lesson rather than off a counter, because the
+    /// two can never disagree: a miss is what makes the lesson longer, so a
+    /// lesson that never grew is a lesson nobody got wrong.
+    var isPerfect: Bool { total == baseTotal }
+
+    // MARK: - Measurement
+
+    /// When the first question appeared.
+    private let startedAt = Date()
+    /// When the question now on screen appeared.
+    private var questionShownAt = Date()
+    /// The first touch on the question now on screen, whatever it landed on.
+    private var firstTouchAt: Date?
+    /// Whether the app left the foreground while this question was up.
+    private var wasBackgrounded = false
+    /// Wrong pairs turned over on the matching board currently on screen.
+    private var badPairs = 0
+    /// Every answer given in this run, in order.
+    private var attempts: [AttemptRecord] = []
+
+    /// The finished lesson, available from the moment the last question lands.
+    ///
+    /// Held here rather than handed to the screen as loose numbers so the thing
+    /// being displayed and the thing being stored are the same object — a
+    /// summary that computes its own XP is a summary that can disagree with the
+    /// history.
+    private(set) var result: LessonRecord?
     let stage: Stage
 
     /// Bumped on every correct answer so the view can retrigger the particle burst.
@@ -285,6 +315,7 @@ final class LessonViewModel {
             // to a banner four times in one question would kill the round.
             streak = 0
             missToken += 1
+            badPairs += 1
             SoundEngine.shared.wrong()
             Haptics.wrong()
             return
@@ -304,6 +335,12 @@ final class LessonViewModel {
 
     /// The one place a round is won or lost, whichever style produced it.
     private func settle(_ value: Int, isRight: Bool) {
+        // Logged here, in the one place every style ends up, rather than in each
+        // of the five places an answer can come from. A telemetry call that has
+        // to be remembered five times is a telemetry call that will be forgotten
+        // the first time a sixth question type is added.
+        log(value, isRight: isRight)
+
         guard !isRight else {
             award(value)
             return
@@ -341,6 +378,94 @@ final class LessonViewModel {
         }
     }
 
+    /// The first touch since this question appeared. Ignored after that.
+    ///
+    /// The gap between a question appearing and a finger moving is the closest
+    /// thing to a reading of whether someone knew it — everything after the
+    /// first touch is them working, and everything before it is them deciding
+    /// whether they can.
+    func noteFirstTouch() {
+        guard firstTouchAt == nil else { return }
+        firstTouchAt = Date()
+    }
+
+    /// The app went to the background. Marks the current question's timings as
+    /// not to be trusted, and never unmarks it — coming back does not undo the
+    /// seven minutes.
+    func noteBackgrounded() { wasBackgrounded = true }
+
+    /// Writes down the answer that just happened.
+    private func log(_ value: Int, isRight: Bool) {
+        attempts.append(
+            AttemptRecord(
+                skill: skillName,
+                style: String(describing: problem.style),
+                prompt: "\(problem.left) \(problem.operation.symbol) \(problem.right)",
+                numbers: [Double(problem.left), Double(problem.right)],
+                operation: problem.operation.symbol,
+                solutions: ["\(problem.answer)"],
+                chosen: ["\(value)"],
+                correct: isRight,
+                // Nil when nothing was ever touched — a matching board cleared
+                // by dragging, a question answered by the previous tap still
+                // being processed. Empty is the honest answer there; zero would
+                // read as an impossibly fast decision.
+                hesitationSeconds: firstTouchAt.map { $0.timeIntervalSince(questionShownAt) },
+                seconds: Date().timeIntervalSince(questionShownAt),
+                wasBackgrounded: wasBackgrounded,
+                options: problem.choices.map(String.init),
+                streakAtAnswer: streak,
+                isRetry: isFixing,
+                badPairs: badPairs
+            )
+        )
+    }
+
+    /// The concept behind the question on screen.
+    ///
+    /// The one place to extend when the course reaches algebra: `2(x+5)=10` is
+    /// not "addition", it is distributing and then isolating, and the whole
+    /// point of `skill` is that it names the rule rather than the arithmetic.
+    /// Today the course only teaches operations, so today it is the operation.
+    private var skillName: String {
+        switch problem.operation {
+        case .add: problem.style == .gap ? "soma_inversa" : "soma"
+        case .subtract: "subtracao"
+        case .multiply: "multiplicacao"
+        }
+    }
+
+    /// Seals the run and hands it to the history.
+    ///
+    /// Counted off the attempts rather than off the running counters, because
+    /// the attempts are what was actually stored — anything derived a second way
+    /// is a second answer waiting to disagree with the first.
+    private func finish() {
+        let firstTryCorrect = attempts.filter { !$0.isRetry && $0.correct }.count
+        let misses = attempts.filter { !$0.correct }.count
+
+        let lesson = LessonRecord(
+            id: UUID(),
+            stageId: stage.id,
+            stageTitle: stage.title,
+            startedAt: startedAt,
+            finishedAt: Date(),
+            askedTotal: total,
+            baseTotal: baseTotal,
+            firstTryCorrect: firstTryCorrect,
+            misses: misses,
+            bestStreak: bestStreak,
+            xp: LessonRecord.award(firstTryCorrect: firstTryCorrect, misses: misses),
+            attempts: attempts,
+            appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?",
+            deviceModel: Device.model,
+            osVersion: Device.osVersion
+        )
+
+        result = lesson
+        StatsStore.shared.record(lesson)
+    }
+
     /// Leaves the miss banner. Reading the right answer takes as long as it
     /// takes, so this is the user's move rather than a timer's.
     func acknowledge() {
@@ -353,6 +478,12 @@ final class LessonViewModel {
         solved = 0
         index = 0
         total = 10
+        attempts = []
+        badPairs = 0
+        result = nil
+        questionShownAt = Date()
+        firstTouchAt = nil
+        wasBackgrounded = false
         queue = []
         isFixing = false
         phase = .asking
@@ -367,6 +498,7 @@ final class LessonViewModel {
     private func advance() {
         index += 1
         guard index < total else {
+            finish()
             phase = .finished
             SoundEngine.shared.finish()
             Haptics.finish()
@@ -375,6 +507,10 @@ final class LessonViewModel {
         placed = []
         matchedKeys = []
         pickedCard = nil
+        badPairs = 0
+        questionShownAt = Date()
+        firstTouchAt = nil
+        wasBackgrounded = false
         // Fresh questions first, all ten of them. Fixing only starts once the
         // lesson proper is done — a miss should not interrupt the run.
         if index < baseTotal || queue.isEmpty {

@@ -69,6 +69,9 @@ struct LessonProgressBar: View {
     /// itself instead of arriving already committed to a value.
     @State private var shown: Double = 0
 
+    /// Whether the head start has been dealt in yet.
+    @State private var seated = false
+
     @State private var fizz = Fizz.pool(16)
     @State private var risers: [Rise] = []
     @State private var burstStart = Date.distantPast
@@ -79,10 +82,32 @@ struct LessonProgressBar: View {
     private var fizzCount: Int { min(fizz.count, streak * 2) }
     private var riseCount: Int { min(18, 6 + streak * 2) }
 
+    /// How full the bar looks before a single question has been answered.
+    ///
+    /// The lesson is not started at zero — it is started a little way in. People
+    /// finish what looks already begun far more readily than what looks
+    /// untouched, and an empty rail at question one reads as a long way to go.
+    ///
+    /// Small on purpose: enough to see the bar is alive, not enough to feel like
+    /// credit nobody earned.
+    private let head: Double = 0.07
+
+    /// The real fraction, squeezed into what is left after the head start.
+    ///
+    /// Mapped rather than added, so the last answer still lands the bar exactly
+    /// full. Adding the head would have pushed a finished lesson past 100% and
+    /// the fill would clip flat against the end of the rail.
+    /// The head start is gated on `seated` so it grows in with everything else.
+    /// Drawn at full size from frame one it would look like the bar had loaded
+    /// wrong rather than like a lesson already under way.
+    private var shownFill: Double {
+        (seated ? head : 0) + shown * (1 - head)
+    }
+
     var body: some View {
         GeometryReader { geo in
             let full = geo.size.width
-            let width = max(full * shown, shown > 0 ? height : 0)
+            let width = max(full * shownFill, shownFill > 0 ? height : 0)
 
             ZStack(alignment: .leading) {
                 Capsule()
@@ -90,6 +115,10 @@ struct LessonProgressBar: View {
 
                 Capsule()
                     .fill(color)
+                    // Crossfades on its own rather than waiting for a caller to
+                    // wrap the change: the colour swap is the bar's business,
+                    // and a hard cut from green to gold looks like a redraw.
+                    .animation(Theme.settle, value: color)
                     .overlay { innerFizz }
                     // A lighter sliver along the top edge — the fill reads as a
                     // rounded bar catching light, not a flat block.
@@ -119,7 +148,10 @@ struct LessonProgressBar: View {
         .frame(height: height)
         .allowsHitTesting(false)
         .onAppear {
-            withAnimation(Theme.settle.delay(0.18)) { shown = progress }
+            withAnimation(Theme.settle.delay(0.18)) {
+                seated = true
+                shown = progress
+            }
         }
         .onChange(of: progress) { _, new in
             withAnimation(Theme.settle) { shown = new }

@@ -15,7 +15,7 @@ struct MapView: View {
 
     @State private var progress = CourseProgress()
     @State private var playing: Stage?
-    @State private var showingLab = false
+    @State private var showingLab = LabLaunch.requested
 
     var body: some View {
         ZStack {

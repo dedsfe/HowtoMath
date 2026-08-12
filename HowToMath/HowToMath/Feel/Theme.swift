@@ -39,6 +39,20 @@ enum Theme {
     static let tear = Color(hex: 0x38B6E8)
     static let tearLight = Color(hex: 0x9BE0F8)
 
+    /// Inside the mouth. Never seen anywhere else, and never seen at all unless
+    /// the mouth is open — which is exactly why it can be a colour the palette
+    /// otherwise has no room for.
+    static let tongue = Color(hex: 0xF2687E)
+
+    /// The flawless run, and nothing else in the app.
+    ///
+    /// A colour only ever earns its keep here by being rare: green means "you
+    /// answered", red means "you missed", and this one has to mean something a
+    /// player cannot get by simply finishing. If it ever shows up on a screen
+    /// you can reach without a clean lesson, it stops working.
+    static let gold = Color(hex: 0xFFC93C)
+    static let goldEdge = Color(hex: 0xE0A017)
+
     /// Kept as a function so callers stay unchanged, but the accent no longer
     /// drifts with the streak — brand colour beats temperature.
     static func accent(streak: Int) -> Color { green }

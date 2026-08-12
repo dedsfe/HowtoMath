@@ -17,6 +17,7 @@ struct LessonView: View {
 
     @State private var model: LessonViewModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     /// Carries a chip from the bank into its slot instead of teleporting it.
     @Namespace private var pieceFlight
 
@@ -30,6 +31,28 @@ struct LessonView: View {
 
     /// Guards the X. Nothing ends the run without passing through it.
     @State private var showingQuit = false
+
+    /// The end-of-lesson applause. Reachable from the debug button while the
+    /// real hand-off from the last question is still being built.
+    @State private var showingCelebration = false
+
+    #if DEBUG
+    /// Which rung of the debug ladder the bar is pinned to, 0 through 4.
+    /// `nil` hands control back to the lesson.
+    @State private var debugStage: Int?
+    #endif
+
+    /// The combo shout, while one is up. `nil` the rest of the time.
+    @State private var comboText: String?
+    /// Bumped on each combo so the hide timer restarts instead of stacking.
+    @State private var comboToken = 0
+    /// Bumped on each combo to send a wave of bubbles up the screen.
+    @State private var bubbleToken = 0
+    /// When the last wave went up, so the end of the lesson can wait it out.
+    @State private var comboFiredAt = Date.distantPast
+    /// Whether the applause for *this* finish has been seen and dismissed.
+    /// The scoreboard waits behind it.
+    @State private var applauded = false
 
     /// Slower and softer than `Theme.snap` — a sheet this tall reads as heavy,
     /// and an overshoot on a full-width card looks like a wobble.
@@ -75,6 +98,19 @@ struct LessonView: View {
                 // and goes with the format.
                 Creature(size: 74, animation: creatureMood)
                     .padding(.top, 10)
+                    // Steps aside while the quit card is up.
+                    //
+                    // The card has a creature on it too, and two copies of the
+                    // same character on screen at once stop reading as one
+                    // character. Handing it over — this one leaves as that one
+                    // arrives — says instead that he walked out of the lesson
+                    // to come and ask.
+                    //
+                    // Opacity rather than removing it from the stack: the
+                    // question behind must not reflow the moment the card
+                    // opens, or the whole lesson twitches under the scrim.
+                    .opacity(showingQuit ? 0 : 1)
+                    .scaleEffect(showingQuit ? 0.85 : 1)
 
                 // A fixed stage: without it each style is a different height and
                 // the problem jumps up and down as the types rotate. Every style
@@ -100,6 +136,18 @@ struct LessonView: View {
                 }
             }
 
+            // The combo, spilling out of the bar and across the whole screen.
+            //
+            // Edge to edge and over the question rather than tucked around it:
+            // the bar has been fizzing quietly all run, and the thing that marks
+            // five in a row is that fizz getting out. Held below the screens that
+            // take over — the arrival, the applause, the quit card — so a wave
+            // still in the air when one of those opens passes behind it instead
+            // of over it.
+            ComboBubbles(token: bubbleToken)
+                .ignoresSafeArea()
+                .zIndex(1.5)
+
             if showingArrival {
                 // Fades in over the question and lifts away when it leaves, so
                 // the cut to a blank white screen is a move rather than a jolt.
@@ -113,20 +161,51 @@ struct LessonView: View {
                 .zIndex(3)
             }
 
-            if model.phase == .finished {
+            // Behind the applause, and only after it.
+            //
+            // The scoreboard used to be the first thing a finished lesson put on
+            // screen. It is the right screen to end on and the wrong one to
+            // arrive at: a run ends on its best moment, and a column of numbers
+            // is not it. The applause takes the moment; this takes the decision.
+            if model.phase == .finished, applauded {
                 summary
                     .transition(.opacity.combined(with: .scale(scale: 0.94)))
                     .zIndex(2)
+            }
+
+            #if DEBUG
+            debugBar
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .zIndex(1)
+            #endif
+
+            if showingCelebration {
+                CelebrationScreen(isPerfect: model.isPerfect, bestStreak: model.bestStreak) {
+                    withAnimation(arrivalFade) {
+                        showingCelebration = false
+                        applauded = true
+                    }
+                }
+                .transition(.opacity)
+                // Above the quit card: while the applause is up, the X behind
+                // it is not something anyone should be able to reach.
+                .zIndex(6)
             }
 
             if showingQuit {
                 // Scrim and card are siblings so each keeps its own entrance:
                 // the ground fades, the card travels. Folded into one view the
                 // whole screen would slide up from the bottom.
-                Theme.ink.opacity(0.45)
+                // Dark enough that the lesson stops competing for attention,
+                // and inert: tapping it does nothing.
+                //
+                // A scrim you can tap away is right for a sheet you opened by
+                // accident. This one is a decision with two named answers, and
+                // a stray tap outside it should not count as either of them.
+                Theme.ink.opacity(0.78)
                     .ignoresSafeArea()
                     .contentShape(.rect)
-                    .onTapGesture { closeQuit() }
+                    .onTapGesture {}
                     .transition(.opacity)
                     .zIndex(4)
 
@@ -146,6 +225,60 @@ struct LessonView: View {
             guard fixing, !arrivalDone else { return }
             arrivalDone = true
             withAnimation(arrivalFade) { showingArrival = true }
+        }
+        // Any touch anywhere, before the control under it has decided anything.
+        //
+        // A `simultaneousGesture` and a zero-distance drag on purpose: a tap
+        // gesture would compete with the buttons for the same event, and a
+        // per-control call would have to be remembered in five places today and
+        // in every question type added after.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0).onChanged { _ in model.noteFirstTouch() }
+        )
+        // Leaving the app stops the clock from meaning anything.
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { model.noteBackgrounded() }
+        }
+        // Watches the shown streak, not the model's, so the debug ladder trips
+        // the combo exactly the way a real run of five answers would.
+        .onChange(of: shownStreak) { _, streak in
+            guard streak > 0, streak.isMultiple(of: 5) else { return }
+            withAnimation(Theme.snap) { comboText = "COMBO x\(streak)" }
+            comboToken += 1
+            bubbleToken += 1
+            comboFiredAt = .now
+            SoundEngine.shared.combo()
+            Haptics.combo()
+        }
+        // The hand-off from the last question to the applause.
+        //
+        // Held for however much of the last wave is still in the air. Answering
+        // the tenth question on a streak of ten fires the biggest combo of the
+        // run and ends the lesson in the same breath, and cutting straight to
+        // the celebration would delete it — the bubbles would be a third of the
+        // way up the screen when the screen stopped existing.
+        .onChange(of: model.phase) { _, phase in
+            guard phase == .finished else { return }
+
+            // Cleared here rather than only on the way out, so a preview from
+            // the debug bar cannot leave the real finish thinking it has already
+            // taken its bow.
+            applauded = false
+
+            Task {
+                let left = ComboBubbles.span - Date.now.timeIntervalSince(comboFiredAt)
+                // A beat even when nothing is in flight: the last answer's own
+                // green flash deserves to be read before the screen changes.
+                try? await Task.sleep(for: .seconds(max(0.45, left)))
+                withAnimation(arrivalFade) { showingCelebration = true }
+            }
+        }
+        // Keyed on the token, so a combo landing while the last one is still up
+        // restarts the countdown rather than being cut short by it.
+        .task(id: comboToken) {
+            guard comboToken > 0 else { return }
+            try? await Task.sleep(for: .seconds(1.4))
+            withAnimation(.easeOut(duration: 0.3)) { comboText = nil }
         }
         .onAppear {
             Haptics.prepare()
@@ -196,14 +329,24 @@ struct LessonView: View {
             progressBar
 
             streakPill
-
-            #if DEBUG
-            styleToggle
-            arrivalToggle
-            #endif
         }
         .frame(height: 44)
     }
+
+    #if DEBUG
+    /// The debug controls, parked at the bottom of the screen.
+    ///
+    /// They used to ride in the top bar next to the rail, where every pill they
+    /// added ate into the bar's width — which made the one thing they exist to
+    /// let you inspect the hardest thing on screen to see.
+    private var debugBar: some View {
+        HStack(spacing: 10) {
+            styleToggle
+            arrivalToggle
+        }
+        .padding(.bottom, 4)
+    }
+    #endif
 
     #if DEBUG
     /// Cycles the question style so a type can be checked without grinding the
@@ -224,12 +367,24 @@ struct LessonView: View {
     #endif
 
     #if DEBUG
-    /// Plays the arrival screen on demand. Debug builds only.
+    /// Steps the bar through its range so every stage can be looked at without
+    /// answering a lesson's worth of questions. Debug builds only.
+    ///
+    /// Cycles 0 → 25 → 50 → 75 → 100 and then hands control back to the real
+    /// progress, so it is never a mode you can get stuck inside.
     private var arrivalToggle: some View {
         Button {
-            withAnimation(arrivalFade) { showingArrival = true }
+            withAnimation(Theme.settle) {
+                switch debugStage {
+                case .none: debugStage = 0
+                case .some(let stage) where stage >= 4: debugStage = nil
+                case .some(let stage): debugStage = stage + 1
+                }
+            }
         } label: {
-            Text("BOT")
+            // Shows the fill and the streak together, because the button now
+            // sets both and you need to know which combo it is about to trip.
+            Text(debugStage.map { "\($0 * 25)% ·\($0 * 5)" } ?? "BAR")
                 .font(Theme.label(10, .heavy))
                 .foregroundStyle(Theme.dim)
                 .padding(.horizontal, 7)
@@ -240,13 +395,68 @@ struct LessonView: View {
     }
     #endif
 
+    /// What the bar is told to show. The debug stepper wins when it is set.
+    private var shownProgress: Double {
+        #if DEBUG
+        if let stage = debugStage { return Double(stage) * 0.25 }
+        #endif
+        return model.displayProgress
+    }
+
+    /// The streak the bar and the combo are told about.
+    ///
+    /// Stepped alongside the fill rather than left alone, because everything
+    /// interesting about this bar hangs off the streak — the fizz density, the
+    /// combo shout, the gold to come. Driving only the fill would have meant
+    /// the debug button showed the least important half of the thing.
+    ///
+    /// Five per rung, so each press crosses a combo threshold and fires the
+    /// shout on the way past.
+    private var shownStreak: Int {
+        #if DEBUG
+        if let stage = debugStage { return stage * 5 }
+        #endif
+        return model.streak
+    }
+
+    /// Whether the run is long enough to have gone gold.
+    ///
+    /// Latches on at the first combo and stays until a miss takes the streak
+    /// down. The shout is the event; the colour is the state — flashing gold
+    /// for a second every five answers would make the bar strobe through a good
+    /// run instead of rewarding it.
+    private var onFire: Bool { shownStreak >= 5 }
+
+    /// Gold while the run holds, brand green the rest of the time.
+    private var barColor: Color { onFire ? Theme.gold : model.accent }
+
+    /// Every fifth answer in a row, and only for a moment.
+    ///
+    /// Fires on the streak crossing a multiple of five rather than on a counter
+    /// of its own: the streak already resets on a miss, so there is nothing here
+    /// that can drift out of agreement with it.
+    private var comboFlash: some View {
+        Text(comboText ?? "")
+            .font(Theme.label(13, .black))
+            .foregroundStyle(Theme.gold)
+            .opacity(comboText == nil ? 0 : 1)
+            // Overshoots on the way in. It has to arrive like something struck,
+            // not like a label being switched on.
+            .scaleEffect(comboText == nil ? 0.5 : 1)
+            // Above the rail, where nothing else lives. Under it would sit on
+            // the question, and this must never cover what is being asked.
+            .offset(y: -24)
+            .allowsHitTesting(false)
+    }
+
     private var progressBar: some View {
         LessonProgressBar(
-            progress: model.displayProgress,
-            streak: model.streak,
+            progress: shownProgress,
+            streak: shownStreak,
             burstToken: model.burstToken,
-            color: model.accent
+            color: barColor
         )
+        .overlay(alignment: .top) { comboFlash }
     }
 
     private var streakPill: some View {

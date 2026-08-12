@@ -125,9 +125,16 @@ struct LipStyle: ButtonStyle {
         }
         .frame(height: height + Theme.lip)
         .animation(Theme.press, value: configuration.isPressed)
+        // Haptics only, no click.
+        //
+        // There was a tone here on every press and it was noise in the literal
+        // sense: pressing a tile is not an outcome, and the outcome — right or
+        // wrong — announces itself a fraction of a second later anyway. Two
+        // sounds for one action left the answer chime arriving on top of the
+        // click that preceded it. The tap still has to be felt, so the haptic
+        // stays; that one confirms the touch without claiming anything.
         .onChange(of: configuration.isPressed) { _, pressed in
             guard pressed else { return }
-            SoundEngine.shared.tap()
             Haptics.press()
         }
     }
