@@ -207,6 +207,63 @@ Sem copiar os óculos:
 
 ---
 
+## A cena da referência, momento a momento
+
+O paywall do Clucky, 15s em loop. São **três** momentos, e o do meio é o que
+faz a coisa funcionar.
+
+### Momento 1 — o voo (0–3s)
+De perfil, corpo inteiro, ocupando **metade da largura da tela**. Ele vai pra
+direita e quem corre é o fundo: nuvens brancas passando atrás e embaixo.
+
+### Momento 2 — o zoom até sumir (3–5s)
+A câmera aproxima até só os dois óculos, a crista e o bico caberem na tela — e
+**durante o zoom ele vira de perfil pra frente**. Continua chegando até
+atravessar a câmera e sair de quadro. A tela fica **vazia por ~1s**, e o fundo
+já é outro: branco, com uma curva suave de colina embaixo.
+
+### Momento 3 — a volta pequena (6–8s)
+Reaparece **entrando por baixo**, de frente, subindo e encolhendo até parar no
+alto. O card sobe por baixo dele e ele vira o mascote do cabeçalho.
+
+> ### O truque está no momento 2
+>
+> Aquele segundo de tela vazia não é tempo morto — é o que permite trocar de
+> perfil pra frente, e de grande pra pequeno, sem ninguém ver a emenda. A
+> alternativa seria animar a virada, que é cara e sempre fica estranha.
+>
+> Vale de novo: a transição mais barata é a que acontece fora de quadro.
+
+### O que a gente fez em vez disso
+
+Nada de zoom, nada de virada: **duas posições de câmera e um corte seco**, 3s no
+plano aberto e 2s no close. É como um filme faria, e é mais barato ainda que a
+tela vazia.
+
+O que isso obriga: se nada muda além da câmera, **o personagem não pode mudar**.
+Ele não vira — a câmera é que pula pra frente dele. Daí veio o `.flyingFront`:
+não é uma pose nova, é o mesmo voo de outro ângulo. Tudo que é "estar voando"
+(boca reta, pálpebra caída, fôlego preso, tremida, sem piscar) vem de um
+`isFlight` comum aos dois planos, e só três coisas diferem — e todas são
+consequência da lente:
+
+| | de lado | de frente |
+|---|---|---|
+| olhos | um | dois |
+| corpo | esticado no comprimento | sem esticão (encurtamento) |
+| pés | jogados pra trás | parados, escondidos pelo corpo |
+
+Duas armadilhas de sinal, ambas do mesmo tipo — "pra frente" muda de significado
+quando a câmera gira:
+
+1. **A pálpebra.** De lado, cair pra frente é apertar os olhos pra onde vai. De
+   frente, isso vira cair nos cantos *externos*, que é tristeza. Inverte.
+2. **O cenário.** A câmera está de frente pro rosto, ou seja **voando de
+   costas** — então o mundo recua e encolhe pro fundo, como pela janela traseira
+   de um carro. Não vem em direção à lente.
+
+---
+
 ## Próximo passo
 
 Separar `CharacterLab.swift` (1933 linhas) em arquivos por peça: `Eye.swift`,

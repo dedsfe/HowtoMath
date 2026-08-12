@@ -423,7 +423,13 @@ struct Creature: View {
     /// Flying is excluded: the body is already held stretched, and a breath
     /// swelling it on top of that reads as the pose wobbling loose rather than
     /// as something alive.
-    private var breathIn: Bool { isLive && breathing && animation != .flying }
+    private var breathIn: Bool { isLive && breathing && !isFlight }
+
+    /// Both camera angles on the same flight. Everything about the pose — the
+    /// flat mouth, the hooded eye, the held breath, the jitter — belongs to
+    /// *being in flight*, not to being seen from the side, so all of it keys off
+    /// this rather than off one specific shot.
+    private var isFlight: Bool { animation == .flying || animation == .flyingFront }
 
     /// Standing there being alive: breathing, blinking, glancing about. `gloomy`
     /// is `idle` wearing a different lid, so every one of those has to keep
@@ -431,7 +437,7 @@ struct Creature: View {
     private var isLive: Bool {
         animation == .idle || animation == .gloomy || animation == .joy
             || animation == .walkIn || animation == .leapIn || animation == .serious
-            || animation == .wtf || animation == .flying
+            || animation == .wtf || isFlight
     }
 
     /// How far the upper lid hangs over the eye, 0 to 1.
@@ -440,7 +446,7 @@ struct Creature: View {
     /// angle so the two eyes tilt away from each other. Level lids just make it
     /// look sleepy, and lids low on the inner corners make it look cross.
     private var hood: CGFloat {
-        animation == .gloomy || animation == .serious || animation == .flying ? 1 : 0
+        animation == .gloomy || animation == .serious || isFlight ? 1 : 0
     }
 
     /// Which corner of the lid is the low one.
@@ -449,14 +455,21 @@ struct Creature: View {
     /// other; a scowl drops the inner ones and they tilt toward the nose. Same
     /// lid, same amount, opposite direction — and that single sign flip is the
     /// difference between miserable and having had enough.
-    /// Flight deliberately stays `false`, which puts the low corner at the
-    /// *front* of the single visible eye.
+    /// Profile flight deliberately stays `false`, which puts the low corner at
+    /// the *front* of the single visible eye.
     ///
     /// In profile there is no inner and outer any more — there is leading and
     /// trailing. A lid dropping toward the back of the head reads as looking
     /// over its own shoulder; dropping toward the front is a creature squinting
     /// at where it is headed, which is the whole expression in the reference.
-    private var hoodInward: Bool { animation == .serious }
+    ///
+    /// Head on, inner and outer exist again, and the same lid that squinted
+    /// forward in profile lands on both outer corners at once — which is the
+    /// recipe for sadness, not effort. So `.flyingFront` flips it. The two
+    /// angles disagree about the sign precisely so they agree about the face.
+    private var hoodInward: Bool {
+        animation == .serious || animation == .flyingFront
+    }
 
     // MARK: - Body
 
@@ -483,6 +496,11 @@ struct Creature: View {
     /// I argued against this and was wrong. A front-facing head laid flat reads
     /// as a creature toppling over, not flying — so the profile is what lets
     /// the body lie horizontal at all. The two go together or neither works.
+    ///
+    /// Which is why `.flyingFront` exists and is excluded here: it is the same
+    /// flight seen from a camera *in front of him* rather than beside him. Head
+    /// on, a body lying flat is pointing at the lens, so it never reads as
+    /// horizontal in the first place and the objection above does not apply.
     private var inProfile: Bool { animation == .flying }
 
     private var face: some View {
@@ -831,7 +849,11 @@ struct Creature: View {
         // squinting at nothing in particular. Pinning it to the leading edge is
         // what turns the squint into aim. Returning early also kills the idle
         // glance, which up here would read as him looking around for the exit.
-        if animation == .flying { return -0.055 }
+        //
+        // Front-on, dead centre *is* the aim: the leading edge is the lens, so
+        // the same offset that means "looking where he is going" in profile
+        // only means "looking slightly to the left of you" here.
+        if isFlight { return animation == .flying ? -0.055 : 0 }
 
         guard isLive, clock > 0 else { return 0 }
 
@@ -900,6 +922,11 @@ struct Creature: View {
             return t < 1.03 ? 0 : min(1, CGFloat((t - 1.03) / 0.12))
         }
         if animation == .celebrate { return 0 }
+        // Never in flight. A blink is a face letting go for a moment, and this
+        // one is not letting go of anything — but the real problem is the
+        // close-up: held on one still face, the blink becomes the only moving
+        // thing on screen and therefore the only thing anybody watches.
+        guard !isFlight else { return 1 }
         guard isLive, clock > 0 else { return 1 }
 
         let cycle = (clock / blinkPeriod).rounded(.down)
@@ -1073,7 +1100,7 @@ struct Creature: View {
         // the smile was the thing making him look like he was enjoying a ride
         // rather than going somewhere. The reference has no smile at all — a
         // beak and a squint, nothing else. Effort does not grin.
-        case .flying: 0
+        case .flying, .flyingFront: 0
         default: 1.0
         }
     }
@@ -1132,13 +1159,13 @@ struct Creature: View {
         // In flight the HStack stops doing the placing — `flightStride` puts
         // each foot where it belongs, so the spacing collapses to nothing and
         // the pair rises from under the body to the middle of it.
-        HStack(spacing: size * (animation == .flying ? 0 : 0.30)) {
+        HStack(spacing: size * (isFlight ? 0 : 0.30)) {
             foot(side: -1)
             foot(side: 1)
         }
         .offset(
             x: flightJitter(weight: 1.6).x,
-            y: size * (animation == .flying ? 0.06 : 0.40) + flightJitter(weight: 1.6).y
+            y: size * (isFlight ? 0.06 : 0.40) + flightJitter(weight: 1.6).y
         )
     }
 
@@ -1151,6 +1178,11 @@ struct Creature: View {
             .frame(width: size * 0.26, height: size * 0.20)
             // Drawn out lengthwise in flight — a round foot trailing behind
             // reads as a dropped ball, a long one reads as a leg.
+            //
+            // Side-on only, for the same reason as `flightStretch`: the length
+            // is along his direction of travel, which points at the camera in
+            // `.flyingFront`. Stretched there it stuck out sideways past his
+            // cheek as a green bar, a leg apparently growing out of his face.
             .scaleEffect(
                 x: animation == .flying ? 1.55 : 1,
                 y: animation == .flying ? 0.70 : 1
@@ -1329,7 +1361,7 @@ struct Creature: View {
     /// buzzed by the same amount there would be no relative motion at all, and
     /// no relative motion is exactly what a camera wobble looks like.
     private func flightJitter(weight: CGFloat) -> (x: CGFloat, y: CGFloat) {
-        guard animation == .flying, clock > 0 else { return (0, 0) }
+        guard isFlight, clock > 0 else { return (0, 0) }
 
         let t = clock
         let rattle = sin(t * 41) * 0.7 + sin(t * 27) * 0.3
@@ -1355,7 +1387,7 @@ struct Creature: View {
     /// the horizontal body says "going somewhere" by itself, and a steep angle
     /// on top of that just reads as falling. This is barely a tilt — enough to
     /// lift the head above the tail and no more.
-    private var flightLean: Double { animation == .flying ? -8 : 0 }
+    private var flightLean: Double { isFlight ? -8 : 0 }
 
     /// Stretched along the direction of travel, which is now sideways.
     ///
@@ -1366,6 +1398,9 @@ struct Creature: View {
     /// Pushed out to a capsule. The reference body is long and low, closer to a
     /// lozenge than a ball, and that silhouette is doing more of the work than
     /// any amount of streaking behind it.
+    /// Side-on only. The stretch is foreshortening in reverse — a body seen
+    /// along its length looks long, and the same body pointed at the camera
+    /// looks short and wide. Applying it front-on would just make him fat.
     private var flightStretch: (width: CGFloat, height: CGFloat) {
         animation == .flying ? (1.38, 0.78) : (1, 1)
     }
@@ -1381,6 +1416,11 @@ struct Creature: View {
     /// The two are still offset from each other. Perfectly stacked feet lose
     /// one of them entirely; a small split keeps both legible without going
     /// back to a scissor.
+    /// Side-on only. "Behind him" is a shove to the right on screen, which is
+    /// only true while the camera is beside him — head on, behind him is *away
+    /// from the lens*, so the same shove pushes his feet out past his cheek
+    /// instead of hiding them. Front-on they stay put and the body covers them,
+    /// which is what trailing feet look like from in front.
     private func flightStride(side: CGFloat) -> (x: CGFloat, y: CGFloat, scale: CGFloat) {
         guard animation == .flying else { return (0, 0, 1) }
 
@@ -1429,6 +1469,14 @@ enum CreatureAnimation: String, CaseIterable, Identifiable {
     /// Flying, chest to camera. Leaning, stretched tall and buzzing — the
     /// scenery is what actually moves, so this pose has to hold on its own.
     case flying = "Voando (herói)"
+    /// The same flight, from a camera in front of him instead of beside him.
+    ///
+    /// Not a second pose — the *same* pose, cut to from another angle. Every
+    /// difference between this and `flying` is a difference the camera makes:
+    /// two eyes instead of one, and no lengthwise stretch, because a body
+    /// pointed at the lens is foreshortened rather than long. Anything else
+    /// changing across that cut would give the edit away.
+    case flyingFront = "Voando (de frente)"
     /// The scrawl: two hand-drawn circles for eyes with nothing inside them,
     /// and a crooked square for a mouth. Nothing else on this creature is drawn
     /// this way, which is the point — it is the face for the moment the joke is
